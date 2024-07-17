@@ -56,11 +56,12 @@ SQL
 
 class RechnungApp
   def initialize
-    @window = Gtk::Window.new('Rechnung Generator')
-    @window.set_size_request(600, 400)
+    @window = Gtk::Window.new
+    @window.set_title("Rechnungen, Waren und Kunden")
+    @window.set_default_size(800, 600)
     @window.signal_connect('destroy') { Gtk.main_quit }
 
-    vbox = Gtk::Box.new(:vertical, 0)
+    vbox = Gtk::Box.new(:vertical, 5)
     @window.add(vbox)
 
     menubar = Gtk::MenuBar.new
@@ -68,7 +69,6 @@ class RechnungApp
     manage_menu = Gtk::Menu.new
     customer_menu = Gtk::Menu.new
     product_menu = Gtk::Menu.new
-
 
     file_item = Gtk::MenuItem.new(label: 'Datei')
     file_item.set_submenu(file_menu)
@@ -85,8 +85,6 @@ class RechnungApp
     inventory_item = Gtk::MenuItem.new(label: 'Lagerbestand anzeigen')
     inventory_item.signal_connect('activate') { show_inventory }
 
-
-
     manage_item = Gtk::MenuItem.new(label: 'Rechnungen')
     manage_item.set_submenu(manage_menu)
 
@@ -102,7 +100,6 @@ class RechnungApp
     delete_customer_item = Gtk::MenuItem.new(label: 'Kunden löschen')
     delete_customer_item.signal_connect('activate') { delete_customer }
 
-    # Add a new menu item for editing customers
     edit_customer_item = Gtk::MenuItem.new(label: "Kunden bearbeiten")
     edit_customer_item.signal_connect('activate') { edit_customer }
 
@@ -115,10 +112,14 @@ class RechnungApp
     delete_invoice_item = Gtk::MenuItem.new(label: 'Rechnung löschen')
     delete_invoice_item.signal_connect('activate') { delete_invoice }
 
+    show_invoices_item = Gtk::MenuItem.new(label: 'Rechnungen anzeigen')
+    show_invoices_item.signal_connect('activate') { show_invoices }
+
     file_menu.append(exit_item)
     manage_menu.append(create_invoice_item)
     manage_menu.append(delete_invoice_item)
     manage_menu.append(recreate_pdf_item)
+    manage_menu.append(show_invoices_item)
     customer_menu.append(add_customer_item)
     customer_menu.append(delete_customer_item)
     customer_menu.append(edit_customer_item)
@@ -133,48 +134,18 @@ class RechnungApp
 
     vbox.pack_start(menubar, expand: false, fill: false, padding: 0)
 
-    # Suchfeld hinzufügen
-    search_box = Gtk::Box.new(:horizontal, 5)
-    search_entry = Gtk::Entry.new
-    search_entry.placeholder_text = "Suche nach Rechnungen..."
-    search_button = Gtk::Button.new(label: "Suchen")
-    search_box.pack_start(search_entry, expand: true, fill: true, padding: 0)
-    search_box.pack_start(search_button, expand: false, fill: false, padding: 0)
-    vbox.pack_start(search_box, expand: false, fill: false, padding: 5)
-
-    # TreeView für Rechnungen
-    @treeview = Gtk::TreeView.new
-    renderer = Gtk::CellRendererText.new
-    columns = ['ID', 'Kunde', 'Summe', 'Datum', 'Bezahlt']
-    @list_store = Gtk::ListStore.new(Integer, String, Float, String, String)
-
-    columns.each_with_index do |col, idx|
-      column = Gtk::TreeViewColumn.new(col, renderer, text: idx)
-      @treeview.append_column(column)
-    end
-    @treeview.model = @list_store
-
-    @treeview.signal_connect('row-activated') do |view, path, column|
-      iter = @list_store.get_iter(path)
-      id = iter[0]
-      edit_invoice(id)
-    end
-
-    vbox.pack_start(@treeview, expand: true, fill: true, padding: 0)
-    load_rechnungen_to_list_store(@list_store)
-
-    search_button.signal_connect('clicked') { search_invoices(search_entry.text) }
-    search_entry.signal_connect('activate') { search_invoices(search_entry.text) }
-
-    # Initialisieren Sie die Anzeige mit den letzten 10 Rechnungen
-    load_last_10_invoices
-
-    # Statusleiste hinzufügen
-    @statusbar = Gtk::Statusbar.new
-    vbox.pack_end(@statusbar, expand: false, fill: false, padding: 0)
+    # Hauptinhaltsbereich erstellen und hinzufügen
+    @main_content_area = Gtk::Box.new(:vertical, 5)
+    vbox.pack_start(@main_content_area, expand: true, fill: true, padding: 0)
 
     @window.show_all
   end
+
+  def clear_main_content_area
+    @main_content_area.children.each { |child| @main_content_area.remove(child) }
+  end
+
+
 
   # Methode zum Aktualisieren der Statusleiste
   def update_status(message)
@@ -235,6 +206,33 @@ class RechnungApp
 
     dialog.destroy
   end
+  def show_invoices
+    clear_main_content_area
+
+    # TreeView für Rechnungen
+    treeview = Gtk::TreeView.new
+    renderer = Gtk::CellRendererText.new
+    columns = ['ID', 'Kunde', 'Summe', 'Datum', 'Bezahlt']
+    list_store = Gtk::ListStore.new(Integer, String, Float, String, String)
+
+    columns.each_with_index do |col, idx|
+      column = Gtk::TreeViewColumn.new(col, renderer, text: idx)
+      treeview.append_column(column)
+    end
+    treeview.model = list_store
+
+    treeview.signal_connect('row-activated') do |view, path, column|
+      iter = list_store.get_iter(path)
+      id = iter[0]
+      edit_invoice(id)
+    end
+
+    @main_content_area.pack_start(treeview, expand: true, fill: true, padding: 0)
+    load_rechnungen_to_list_store(list_store)
+
+    @main_content_area.show_all
+  end
+
   def edit_invoice(id)
     invoice_data = DATABASE.execute('SELECT kunde, summe, datum, bezahlt FROM rechnungen WHERE id = ?', id).first
     customer_id, total_sum, date, paid = invoice_data
@@ -712,18 +710,14 @@ end
 
 def show_inventory
   puts "Starte show_inventory Methode"
-  dialog = Gtk::Dialog.new(
-    title: "Lagerbestand",
-    parent: @window,
-    flags: :destroy_with_parent,
-    buttons: [['Schließen', :close]]
-  )
 
-  dialog_content_area = dialog.content_area
+  # Entfernen Sie alle Kinder des Hauptinhaltsbereichs
+  @main_content_area.children.each { |child| @main_content_area.remove(child) }
 
   # Erstellen Sie ein TreeView für den Lagerbestand
-  inventory_store = Gtk::ListStore.new(String, String, String)  # Änderung hier: Alle Spalten als String
-  inventory_view = Gtk::TreeView.new(inventory_store)
+  inventory_store = Gtk::ListStore.new(String, String, String)  # Alle Spalten als String
+  inventory_view = Gtk::TreeView.new
+  inventory_view.model = inventory_store
 
   # Fügen Sie Spalten hinzu
   renderer = Gtk::CellRendererText.new
@@ -731,10 +725,10 @@ def show_inventory
   inventory_view.append_column(Gtk::TreeViewColumn.new("Lagerbestand", renderer, text: 1))
   inventory_view.append_column(Gtk::TreeViewColumn.new("Preis", renderer, text: 2))
 
-  # Fügen Sie das TreeView zum Dialog hinzu
+  # Fügen Sie das TreeView zum Hauptinhaltsbereich hinzu
   scrolled_window = Gtk::ScrolledWindow.new
   scrolled_window.add(inventory_view)
-  dialog_content_area.pack_start(scrolled_window, expand: true, fill: true, padding: 5)
+  @main_content_area.add(scrolled_window)
 
   # Laden Sie die Daten aus der Datenbank
   begin
@@ -750,11 +744,7 @@ def show_inventory
     puts "Fehler beim Laden der Produkte: #{e.message}"
   end
 
-  dialog_content_area.show_all
-
-  puts "Dialog wird angezeigt"
-  dialog.run
-  dialog.destroy
+  @main_content_area.show_all
   puts "show_inventory Methode beendet"
 end
 
