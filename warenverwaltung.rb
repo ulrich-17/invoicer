@@ -61,6 +61,9 @@ class RechnungApp
     @window.set_default_size(800, 600)
     @window.signal_connect('destroy') { Gtk.main_quit }
 
+    # Initialize @list_store
+    @list_store = Gtk::ListStore.new(Integer, String, Float, String, Integer)
+
     vbox = Gtk::Box.new(:vertical, 5)
     @window.add(vbox)
 
@@ -727,7 +730,11 @@ def show_inventory
 
   # Fügen Sie das TreeView zum Hauptinhaltsbereich hinzu
   scrolled_window = Gtk::ScrolledWindow.new
+  scrolled_window.set_policy(:automatic, :automatic)
   scrolled_window.add(inventory_view)
+  scrolled_window.set_vexpand(true)  # Ermöglicht vertikale Expansion
+  scrolled_window.set_hexpand(true)  # Ermöglicht horizontale Expansion
+
   @main_content_area.add(scrolled_window)
 
   # Laden Sie die Daten aus der Datenbank
@@ -758,134 +765,138 @@ end
     end
   end
 
-  def create_invoice
-    dialog = Gtk::Dialog.new(
-      title: "Rechnung erstellen",
-      parent: @window,
-      flags: :destroy_with_parent,
-      buttons: [
-        ['OK', :ok],
-        ['Abbrechen', :cancel]
-      ]
-    )
+def create_invoice
+  dialog = Gtk::Dialog.new(
+    title: "Rechnung erstellen",
+    parent: @window,
+    flags: :destroy_with_parent,
+    buttons: [
+      ['OK', :ok],
+      ['Abbrechen', :cancel]
+    ]
+  )
 
-    dialog_content_area = dialog.content_area
+  dialog_content_area = dialog.content_area
 
-    # Kunde auswählen
-    customer_combo = Gtk::ComboBoxText.new
-    DATABASE.execute('SELECT id, name FROM kunden') do |row|
-      customer_combo.append(row[0].to_s, row[1])
-    end
-    dialog_content_area.add(Gtk::Label.new("Kunde auswählen:"))
-    dialog_content_area.add(customer_combo)
-
-    # Produktfilter
-    filter_entry = Gtk::Entry.new
-    filter_entry.placeholder_text = "Produkte filtern..."
-    dialog_content_area.add(filter_entry)
-
-    # Produkte auswählen
-    products_list = Gtk::ListBox.new
-    products = []
-
-    update_product_list = lambda do |filter_text|
-      products_list.children.each { |child| products_list.remove(child) }
-      products.clear
-
-      query = 'SELECT id, name, preis, lagerstand, mwst_satz FROM produkte WHERE name LIKE ? AND can_sell = 1'
-      DATABASE.execute(query, ["%#{filter_text}%"]) do |row|
-        row_box = Gtk::Box.new(:horizontal, 10)
-        checkbox = Gtk::CheckButton.new("#{row[1]} - #{row[2]} EUR (Lager: #{row[3] || 'N/A'})")
-        quantity_entry = Gtk::Entry.new
-        quantity_entry.width_chars = 3
-        quantity_entry.text = "1"
-        row_box.pack_start(checkbox, expand: false, fill: false, padding: 0)
-        row_box.pack_start(quantity_entry, expand: false, fill: false, padding: 0)
-        products_list.add(row_box)
-        products << { id: row[0], name: row[1], price: row[2], lagerstand: row[3], mwst_satz: row[4], checkbox: checkbox, quantity: quantity_entry }
-      end
-      products_list.show_all
-    end
-
-    filter_entry.signal_connect('changed') { |entry| update_product_list.call(entry.text) }
-    update_product_list.call("")  # Initial population of the list
-
-    dialog_content_area.add(Gtk::Label.new("Produkte auswählen:"))
-    dialog_content_area.add(products_list)
-
-    # Datum
-    date_entry = Gtk::Entry.new
-    date_entry.text = Time.now.strftime("%Y-%m-%d")
-    dialog_content_area.add(Gtk::Label.new("Datum:"))
-    dialog_content_area.add(date_entry)
-
-    # Checkbox für Lagerbestand-Anpassung
-    adjust_stock_checkbox = Gtk::CheckButton.new("Lagerbestand anpassen")
-    adjust_stock_checkbox.active = true  # Standardmäßig aktiviert
-    dialog_content_area.add(adjust_stock_checkbox)
-
-    # Checkbox für automatisches Speichern der PDF
-    save_pdf_checkbox = Gtk::CheckButton.new("PDF-Rechnung automatisch speichern")
-    save_pdf_checkbox.active = true  # Standardmäßig aktiviert
-    dialog_content_area.add(save_pdf_checkbox)
-
-    dialog_content_area.show_all
-
-    response = dialog.run
-    if response == :ok
-      customer_id = customer_combo.active_id.to_i
-      selected_products = products.select { |product| product[:checkbox].active? }
-
-      if selected_products.empty?
-        puts "Keine Produkte ausgewählt"
-      else
-        total_sum = 0
-        total_mwst = 0
-        selected_products.each do |product|
-          quantity = product[:quantity].text.to_i
-          price_with_vat = product[:price]
-          mwst_satz = product[:mwst_satz] || 20.0
-          price_without_vat = price_with_vat / (1 + mwst_satz / 100.0)
-          product_total = price_without_vat * quantity
-          product_mwst = product_total * (mwst_satz / 100.0)
-          total_sum += product_total
-          total_mwst += product_mwst
-        end
-
-        date = date_entry.text
-        DATABASE.execute("INSERT INTO rechnungen (kunde, summe, datum, bezahlt) VALUES (?, ?, ?, ?)", [customer_id, total_sum + total_mwst, date, 0])
-        invoice_id = DATABASE.last_insert_row_id
-
-        # Speichern der Rechnungspositionen
-        selected_products.each do |product|
-          quantity = product[:quantity].text.to_i
-          price_with_vat = product[:price]
-          mwst_satz = product[:mwst_satz] || 20.0
-          price_without_vat = (price_with_vat / (1 + mwst_satz / 100.0)).round(2)
-
-          gesamtpreis_netto = (price_without_vat * quantity).round(2)
-          mwst_betrag = (gesamtpreis_netto * (mwst_satz / 100.0)).round(2)
-          gesamtpreis_brutto = (gesamtpreis_netto + mwst_betrag).round(2)
-
-          DATABASE.execute("INSERT INTO rechnungspositionen (rechnung_id, produkt_id, menge, einzelpreis_netto, mwst_satz, einzelpreis_brutto, gesamtpreis_netto, gesamtpreis_brutto, mwst_betrag) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                           [invoice_id, product[:id], quantity, price_without_vat, mwst_satz, price_with_vat, gesamtpreis_netto, gesamtpreis_brutto, mwst_betrag])
-        end
-
-        if adjust_stock_checkbox.active?
-          adjust_stock(selected_products)
-        end
-
-        load_rechnungen_to_list_store(@list_store)
-        puts "Rechnung erstellt"
-
-        if save_pdf_checkbox.active?
-          generate_pdf(invoice_id, customer_id, selected_products, total_sum, total_mwst, date)
-        end
-      end
-    end
-
-    dialog.destroy
+  # Kunde auswählen
+  customer_combo = Gtk::ComboBoxText.new
+  DATABASE.execute('SELECT id, name FROM kunden') do |row|
+    customer_combo.append(row[0].to_s, row[1])
   end
+  dialog_content_area.add(Gtk::Label.new("Kunde auswählen:"))
+  dialog_content_area.add(customer_combo)
+
+  # Produkte auswählen
+  products_list = Gtk::ListBox.new
+  products = []
+
+  DATABASE.execute('SELECT id, name, preis, lagerstand, mwst_satz FROM produkte WHERE can_sell = 1') do |row|
+    row_box = Gtk::Box.new(:horizontal, 10)
+    checkbox = Gtk::CheckButton.new("#{row[1]} - #{row[2]} EUR (Lager: #{row[3] || 'N/A'})")
+    quantity_entry = Gtk::Entry.new
+    quantity_entry.width_chars = 3
+    quantity_entry.text = "0"  # Standardwert auf 0 setzen
+
+    # Signal für die Checkbox
+    checkbox.signal_connect('toggled') do |widget|
+      if widget.active?
+        quantity_entry.text = "1" if quantity_entry.text.to_i == 0  # Setze auf 1, wenn es 0 ist
+      else
+        quantity_entry.text = "0"  # Setze auf 0, wenn die Checkbox deaktiviert wird
+      end
+    end
+
+    # Signal für das Eingabefeld
+    quantity_entry.signal_connect('changed') do |widget|
+      if widget.text.to_i > 0
+        checkbox.active = true
+      else
+        checkbox.active = false
+      end
+    end
+
+    row_box.pack_start(checkbox, expand: false, fill: false, padding: 0)
+    row_box.pack_start(quantity_entry, expand: false, fill: false, padding: 0)
+    products_list.add(row_box)
+    products << { id: row[0], name: row[1], price: row[2], lagerstand: row[3], mwst_satz: row[4], checkbox: checkbox, quantity: quantity_entry }
+  end
+
+  dialog_content_area.add(Gtk::Label.new("Produkte auswählen:"))
+  dialog_content_area.add(products_list)
+
+  # Datum
+  date_entry = Gtk::Entry.new
+  date_entry.text = Time.now.strftime("%Y-%m-%d")
+  dialog_content_area.add(Gtk::Label.new("Datum:"))
+  dialog_content_area.add(date_entry)
+
+  # Checkbox für Lagerbestand-Anpassung
+  adjust_stock_checkbox = Gtk::CheckButton.new("Lagerbestand anpassen")
+  adjust_stock_checkbox.active = true  # Standardmäßig aktiviert
+  dialog_content_area.add(adjust_stock_checkbox)
+
+  # Checkbox für automatisches Speichern der PDF
+  save_pdf_checkbox = Gtk::CheckButton.new("PDF-Rechnung automatisch speichern")
+  save_pdf_checkbox.active = true  # Standardmäßig aktiviert
+  dialog_content_area.add(save_pdf_checkbox)
+
+  dialog_content_area.show_all
+
+  response = dialog.run
+  if response == :ok
+    customer_id = customer_combo.active_id.to_i
+    selected_products = products.select { |product| product[:checkbox].active? }
+
+    if selected_products.empty?
+      puts "Keine Produkte ausgewählt"
+    else
+      total_sum = 0
+      total_mwst = 0
+      selected_products.each do |product|
+        quantity = product[:quantity].text.to_i
+        price_with_vat = product[:price]
+        mwst_satz = product[:mwst_satz] || 20.0
+        price_without_vat = price_with_vat / (1 + mwst_satz / 100.0)
+        product_total = price_without_vat * quantity
+        product_mwst = product_total * (mwst_satz / 100.0)
+        total_sum += product_total
+        total_mwst += product_mwst
+      end
+
+      date = date_entry.text
+      DATABASE.execute("INSERT INTO rechnungen (kunde, summe, datum, bezahlt) VALUES (?, ?, ?, ?)", [customer_id, total_sum + total_mwst, date, 0])
+      invoice_id = DATABASE.last_insert_row_id
+
+      # Speichern der Rechnungspositionen
+      selected_products.each do |product|
+        quantity = product[:quantity].text.to_i
+        price_with_vat = product[:price]
+        mwst_satz = product[:mwst_satz] || 20.0
+        price_without_vat = (price_with_vat / (1 + mwst_satz / 100.0)).round(2)
+
+        gesamtpreis_netto = (price_without_vat * quantity).round(2)
+        mwst_betrag = (gesamtpreis_netto * (mwst_satz / 100.0)).round(2)
+        gesamtpreis_brutto = (gesamtpreis_netto + mwst_betrag).round(2)
+
+        DATABASE.execute("INSERT INTO rechnungspositionen (rechnung_id, produkt_id, menge, einzelpreis_netto, mwst_satz, einzelpreis_brutto, gesamtpreis_netto, gesamtpreis_brutto, mwst_betrag) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                         [invoice_id, product[:id], quantity, price_without_vat, mwst_satz, price_with_vat, gesamtpreis_netto, gesamtpreis_brutto, mwst_betrag])
+      end
+
+      if adjust_stock_checkbox.active?
+        adjust_stock(selected_products)
+      end
+
+      load_rechnungen_to_list_store(@list_store)
+      puts "Rechnung erstellt"
+
+      if save_pdf_checkbox.active?
+        generate_pdf(invoice_id, customer_id, selected_products, total_sum, total_mwst, date)
+      end
+    end
+  end
+
+  dialog.destroy
+end
 
 def generate_pdf(invoice_id, customer_id, selected_products, total_sum, total_mwst, date)
   customer_data = DATABASE.execute('SELECT name, strasse, hausnummer, plz, stadt, email, telefon FROM kunden WHERE id = ?', customer_id).first
@@ -970,12 +981,32 @@ def generate_pdf(invoice_id, customer_id, selected_products, total_sum, total_mw
   puts "PDF-Rechnung wurde erstellt: Rechnung_#{invoice_number}.pdf"
 end
 
-  def load_rechnungen_to_list_store(list_store)
-    list_store.clear
-    DATABASE.execute('SELECT rechnungen.id, kunden.name, rechnungen.summe, rechnungen.datum, rechnungen.bezahlt FROM rechnungen JOIN kunden ON rechnungen.kunde = kunden.id') do |row|
-      list_store.append.set_values([row[0], row[1], row[2], row[3], row[4] == 1 ? 'Ja' : 'Nein'])
-    end
+def load_rechnungen_to_list_store(list_store)
+  # Check if list_store is nil
+  if list_store.nil?
+    puts "Error: list_store is nil"
+    return
   end
+
+  list_store.clear
+
+  DATABASE.execute('SELECT rechnungen.id, kunden.name, rechnungen.summe, rechnungen.datum, rechnungen.bezahlt FROM rechnungen JOIN kunden ON rechnungen.kunde = kunden.id') do |row|
+    # Konvertieren Sie die Werte in die erwarteten Typen
+    id = row[0].to_i
+    name = row[1].to_s
+    summe = row[2].to_f
+    datum = row[3].to_s
+    bezahlt = row[4].to_i
+
+    # Fügen Sie die Werte zum ListStore hinzu
+    iter = list_store.append
+    iter[0] = id
+    iter[1] = name
+    iter[2] = summe
+    iter[3] = datum
+    iter[4] = bezahlt
+  end
+end
 end
 
 app = RechnungApp.new
