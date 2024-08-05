@@ -287,7 +287,11 @@ class InvoiceManager
                   company_bic_entry.text)
       config = load_config
       if config_valid?(config)
-        @statusbar.push(0, 'Configuration saved successfully!')
+        if defined?(@statusbar)
+          @statusbar.push(@statusbar.get_context_id('info'), "Configuration saved successfully!")
+        else
+          puts "Configuration saved successfully!"
+        end
         config_window.destroy
         if initial_setup
           setup_ui
