@@ -307,25 +307,29 @@ class InvoiceManager
     grid.attach(password_entry, 1, 2, 2, 1)
     grid.attach(database_label, 0, 3, 1, 1)
     grid.attach(database_entry, 1, 3, 2, 1)
-    grid.attach(logo_label, 0, 4, 1, 1)
-    grid.attach(logo_entry, 1, 4, 1, 1)
-    grid.attach(logo_button, 2, 4, 1, 1)
-    grid.attach(pdf_label, 0, 5, 1, 1)
-    grid.attach(pdf_entry, 1, 5, 1, 1)
-    grid.attach(pdf_button, 2, 5, 1, 1)
+
+    # Adding a separator line
+    separator = Gtk::Separator.new(:horizontal)
+    grid.attach(separator, 0, 4, 3, 1)
+    
+    grid.attach(logo_label, 0, 5, 1, 1)
+    grid.attach(logo_entry, 1, 5, 1, 1)
+    grid.attach(logo_button, 2, 5, 1, 1)
+    grid.attach(pdf_label, 0, 6, 1, 1)
+    grid.attach(pdf_entry, 1, 6, 1, 1)
+    grid.attach(pdf_button, 2, 6, 1, 1)
+    grid.attach(company_name_label, 0, 7, 1, 1)
+    grid.attach(company_name_entry, 1, 7, 2, 1)
+    grid.attach(company_street_label, 0, 8, 1, 1)
+    grid.attach(company_street_entry, 1, 8, 2, 1)
+    grid.attach(company_city_label, 0, 9, 1, 1)
+    grid.attach(company_city_entry, 1, 9, 2, 1)
+    grid.attach(company_iban_label, 0, 10, 1, 1)
+    grid.attach(company_iban_entry, 1, 10, 2, 1)
+    grid.attach(company_bic_label, 0, 11, 1, 1)
+    grid.attach(company_bic_entry, 1, 11, 2, 1)
     ###
-    grid.attach(company_name_label, 0, 6, 1, 1)
-    grid.attach(company_name_entry, 1, 6, 2, 1)
-    grid.attach(company_street_label, 0, 7, 1, 1)
-    grid.attach(company_street_entry, 1, 7, 2, 1)
-    grid.attach(company_city_label, 0, 8, 1, 1)
-    grid.attach(company_city_entry, 1, 8, 2, 1)
-    grid.attach(company_iban_label, 0, 9, 1, 1)
-    grid.attach(company_iban_entry, 1, 9, 2, 1)
-    grid.attach(company_bic_label, 0, 10, 1, 1)
-    grid.attach(company_bic_entry, 1, 10, 2, 1)
-    ###
-    grid.attach(save_button, 0, 11, 3, 1)
+    grid.attach(save_button, 0, 12, 3, 1)
 
     # Verhindere, dass das Konfigurationsfenster geschlossen werden kann, wenn es die initiale Einrichtung ist
     if initial_setup
@@ -1360,7 +1364,7 @@ end
 
       pdf.move_down 25
   
-      pdf.text "Rechnung Nr. #{invoice_number}", size: 16, style: :bold
+      pdf.text "Rechnung: #{invoice_number}", size: 16, style: :bold
       year, month, day = date.split('-')
 
       # Baue den neuen String im Format Tag.Monat.Jahr
@@ -1434,7 +1438,7 @@ end
         pdf.bounding_box([0, pdf.bounds.bottom + 20], width: pdf.bounds.width, height: 30) do
           pdf.stroke_horizontal_rule
           pdf.move_down 5
-          pdf.text "|#{company['name']} | #{company['street']}, #{company['city']} |", size: 8, align: :center
+          pdf.text "#{company['name']} | #{company['street']}, #{company['city']}", size: 8, align: :center
           pdf.text "IBAN: #{company['iban']}| BIC: #{company['bic']}", size: 8, align: :center
         end
       end
