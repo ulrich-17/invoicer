@@ -1,0 +1,14 @@
+---
+db:
+  host: localhost
+  username: user
+  password: savePassword
+  database: myDB
+logo: "/path/to/logo"
+pdf_path: "path/to/folder"
+company:
+  name: Skynet
+  street: Killing Street 1
+  city: 1234 Maschine City
+  iban: XX123456789012345678
+  bic: ABCDEFGH
