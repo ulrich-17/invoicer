@@ -425,6 +425,7 @@ class InvoiceManager
       invoice_id INT AUTO_INCREMENT PRIMARY KEY,
       invoice_number VARCHAR(100) NOT NULL,
       sum DECIMAL(10, 2),
+      date DATE,
       paid BOOLEAN DEFAULT FALSE,
       customer_id INT,
           FOREIGN KEY (customer_id) REFERENCES t_customers(customer_id)
@@ -1050,7 +1051,8 @@ end
     result = get_from_DB(query, true).first
 
     if result[0].to_i == 0
-      invoice_number = "#{current_year}00001"
+      #invoice_number = "#{current_year}00001"
+      invoice_number = "#{current_year}001"
     else
       invoice_number = result[0].to_i + 1
     end
@@ -1339,7 +1341,7 @@ end
       # Wasserzeichen hinzufügen
       if File.exist?(logo_path)
         pdf.canvas do
-          pdf.transparent(0.5) do
+          pdf.transparent(0.9) do
             pdf.image logo_path, at: [pdf.bounds.width / 2 - 100, pdf.bounds.height / 2 + 100], width: 200, height: 200
           end
         end
@@ -1370,7 +1372,7 @@ end
       # Baue den neuen String im Format Tag.Monat.Jahr
       pdf.move_down 10
       formatted_date = [day, month, year].join('.')
-      pdf.text "Datum: #{formatted_date}"
+      pdf.text "Rechnungsdatum: #{formatted_date}"
       pdf.move_down 20
 
       # Rechnungspositionen
@@ -1414,7 +1416,7 @@ end
       pdf.text "Gesamtbetrag: #{sprintf("%.2f €", total_brutto)}", size: 16, style: :bold, align: :right
 
       pdf.move_down 40
-      #pdf.text "Betrag dankend erhalten!", align: :center
+      pdf.text "Leistungsdatum ist gleich dem Rechnungsdatum.", align: :center
 
       qr_code_base64 = generate_sepa_qr_code(
         "#{company['name']}",    # Name des Empfängers
@@ -1428,7 +1430,7 @@ end
       # QR-Code und Text in einer Bounding Box einfügen
       pdf.bounding_box([pdf.bounds.right - 120, pdf.bounds.bottom + 150], width: 120) do
         #pdf.text "Scannen zum Bezahlen:", align: :right
-        pdf.text "Betrag dankend erhalten!", align: :center
+        #pdf.text "Betrag dankend erhalten!", align: :center
         qr_code_image = StringIO.new(Base64.decode64(qr_code_base64))
         pdf.image qr_code_image, width: 100, position: :center
       end
