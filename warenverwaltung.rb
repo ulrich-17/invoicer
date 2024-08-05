@@ -1341,16 +1341,6 @@ end
         end
       end
 
-### TODO
-      # Fußzeile auf jeder Seite
-      #pdf.repeat(:all) do
-       # pdf.bounding_box([0, pdf.bounds.bottom + 30], width: pdf.bounds.width, height: 30) do
-        #  pdf.stroke_horizontal_rule
-         # pdf.move_down 5
-          #pdf.text "Weinbau Birsak | Bäckergasse 5, 2273 Hohenau | Tel: 0123456789 | www.wein-birsak.at", size: 8, align: :center
-        #end
-      #end
-
       # Company information
       pdf.text "#{company['name']}", style: :bold
       pdf.text "#{company['street']}"
