@@ -5,7 +5,6 @@ require 'mysql2'
 require 'yaml'
 require 'rqrcode'
 require 'base64'
-#require 'date'
 
 
 class InvoiceManager
