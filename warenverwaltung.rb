@@ -27,8 +27,8 @@ class InvoiceManager
       if test_db_connection == false
         setup_ui(false)
       else
-        setup_ui(true)
         create_tables
+        setup_ui(true)
       end
     else
       create_config_window(true)
@@ -423,20 +423,6 @@ class InvoiceManager
       phone TEXT);
     SQL
 
-    create_table_invoices = <<-SQL
-      CREATE TABLE IF NOT EXISTS t_invoices (
-      invoice_id INT AUTO_INCREMENT PRIMARY KEY,
-      invoice_number VARCHAR(100) NOT NULL,
-      sum DECIMAL(10, 2),
-      date DATE,
-      paid BOOLEAN DEFAULT FALSE,
-      customer_id INT,
-          FOREIGN KEY (customer_id) REFERENCES t_customers(customer_id)
-        ON DELETE CASCADE
-        ON UPDATE CASCADE);
-    SQL
-
-
     create_table_products = <<-SQL
       CREATE TABLE IF NOT EXISTS t_products (
       product_id INT AUTO_INCREMENT PRIMARY KEY,
@@ -445,6 +431,19 @@ class InvoiceManager
       brutto DECIMAL(10, 2),
       stored INT,
       tosell BOOLEAN DEFAULT TRUE);
+    SQL
+
+    create_table_invoices = <<-SQL
+      CREATE TABLE IF NOT EXISTS t_invoices (
+      invoice_id INT AUTO_INCREMENT PRIMARY KEY,
+      invoice_number VARCHAR(16) NOT NULL,
+      sum DECIMAL(10, 2),
+      date DATE,
+      paid BOOLEAN DEFAULT FALSE,
+      customer_id INT,
+          FOREIGN KEY (customer_id) REFERENCES t_customers(customer_id)
+        ON DELETE CASCADE
+        ON UPDATE CASCADE);
     SQL
 
     create_table_billed_products = <<-SQL
@@ -460,9 +459,9 @@ class InvoiceManager
 
 
     begin
-      client.query(create_table_invoices)
       client.query(create_table_customers)
       client.query(create_table_products)
+      client.query(create_table_invoices)
       client.query(create_table_billed_products)
     rescue Mysql2::Error => e
       puts "Tabellen erstellen fehlgeschlagen! - #{e.message}"
