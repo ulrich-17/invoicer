@@ -3,6 +3,10 @@ require 'prawn'
 require 'prawn/table'
 require 'mysql2'
 require 'yaml'
+require 'rqrcode'
+require 'base64'
+#require 'date'
+
 
 class InvoiceManager
 
@@ -21,8 +25,12 @@ class InvoiceManager
   def check_and_load_config
     config = load_config
     if config_valid?(config)
-      setup_ui
-      create_tables
+      if test_db_connection == false
+        setup_ui(false)
+      else
+        setup_ui(true)
+        create_tables
+      end
     else
       create_config_window(true)
     end
@@ -34,7 +42,7 @@ class InvoiceManager
     ['host', 'username', 'password', 'database'].all? { |key| db_config[key] && !db_config[key].empty? }
   end
 
-  def setup_ui
+  def setup_ui(db_ok)
     vbox = Gtk::Box.new(:vertical, 5)
     @window.add(vbox)
 
@@ -77,22 +85,26 @@ class InvoiceManager
     menubar.append(info_item)
 
     # Hauptbereich
+    
     # Notebook erstellen
     @notebook = Gtk::Notebook.new
     vbox.pack_start(@notebook, expand: true, fill: true, padding: 0)
 
-    # Seiten zum Notebook hinzufügen
-    # Erstelle die Tabs mit unterschiedlichen TreeViews
-    # Definiere Tabellen und entsprechende Labels für die Tabs
-    tabs = {
-      "Rechnungen" => "t_invoices",
-      "Kunden" => "t_customers",
-      "Produkte" => "t_products",
-    }
+    # IF DB Connection not OK do not load the tabs
+    if db_ok == true
+      # Seiten zum Notebook hinzufügen
+      # Erstelle die Tabs mit unterschiedlichen TreeViews
+      # Definiere Tabellen und entsprechende Labels für die Tabs
+      tabs = {
+        "Rechnungen" => "t_invoices",
+        "Kunden" => "t_customers",
+        "Produkte" => "t_products",
+      }
 
-    # Erstelle die Tabs dynamisch
-    tabs.each do |tab_label, table_name|
-      create_tab(tab_label, table_name)
+      # Erstelle die Tabs dynamisch
+      tabs.each do |tab_label, table_name|
+        create_tab(tab_label, table_name)
+      end
     end
 
     # Statusleiste erstellen
@@ -116,7 +128,7 @@ class InvoiceManager
   end
 
   # Methode zum Speichern der Konfiguration
-  def save_config(host, username, password, database, logo_path, pdf_path)
+  def save_config(host, username, password, database, logo_path, pdf_path, comapany_name, company_street, company_city, company_iban, company_bic)
     config = {
       'db' => {
         'host' => host,
@@ -125,7 +137,15 @@ class InvoiceManager
         'database' => database
       },
       'logo' => logo_path,
-      'pdf_path' => pdf_path
+      'pdf_path' => pdf_path,
+      'company' => {
+        'name' => comapany_name,
+        'street' => company_street,
+        'city' => company_city,
+        'iban' => company_iban,
+        'bic' => company_bic
+        
+      }
     }
 
     File.open(@config_file, 'w') do |file|
@@ -164,6 +184,7 @@ class InvoiceManager
   def create_config_window(initial_setup = false)
     config = load_config
     db_config = config['db'] || {}
+    company_config = config['company'] || {}
 
     config_window = Gtk::Window.new('DB Config')
     config_window.set_size_request(400, 250)
@@ -179,6 +200,11 @@ class InvoiceManager
     database_label = Gtk::Label.new('Database:')
     logo_label = Gtk::Label.new('Logo:')
     pdf_label = Gtk::Label.new('PDF Path:')
+    company_name_label = Gtk::Label.new('My company:')
+    company_street_label = Gtk::Label.new('My street:')
+    company_city_label = Gtk::Label.new('My city:')
+    company_iban_label = Gtk::Label.new('IBAN:')
+    company_bic_label = Gtk::Label.new('BIC:')
 
     host_entry = Gtk::Entry.new
     username_entry = Gtk::Entry.new
@@ -186,6 +212,11 @@ class InvoiceManager
     database_entry = Gtk::Entry.new
     logo_entry = Gtk::Entry.new
     pdf_entry = Gtk::Entry.new
+    company_name_entry = Gtk::Entry.new
+    company_street_entry = Gtk::Entry.new
+    company_city_entry = Gtk::Entry.new
+    company_iban_entry = Gtk::Entry.new
+    company_bic_entry = Gtk::Entry.new
 
     host_entry.text = db_config['host'] || ''
     username_entry.text = db_config['username'] || ''
@@ -193,6 +224,11 @@ class InvoiceManager
     database_entry.text = db_config['database'] || ''
     logo_entry.text = config['logo'] || ''
     pdf_entry.text = config['pdf_path'] || ''
+    company_name_entry.text = company_config['name'] || ''
+    company_street_entry.text = company_config['street'] || ''
+    company_city_entry.text = company_config['city'] || ''
+    company_iban_entry.text = company_config['iban'] || ''
+    company_bic_entry.text = company_config['bic'] || ''
 
     logo_button = Gtk::Button.new(label: 'Browse...')
     logo_button.signal_connect('clicked') do
@@ -239,7 +275,17 @@ class InvoiceManager
 
     save_button = Gtk::Button.new(label: 'Save')
     save_button.signal_connect('clicked') do
-      save_config(host_entry.text, username_entry.text, password_entry.text, database_entry.text, logo_entry.text, pdf_entry.text)
+      save_config(host_entry.text,
+                  username_entry.text,
+                  password_entry.text,
+                  database_entry.text,
+                  logo_entry.text,
+                  pdf_entry.text,
+                  company_name_entry.text,
+                  company_street_entry.text,
+                  company_city_entry.text,
+                  company_iban_entry.text,
+                  company_bic_entry.text)
       config = load_config
       if config_valid?(config)
         @statusbar.push(0, 'Configuration saved successfully!')
@@ -267,7 +313,19 @@ class InvoiceManager
     grid.attach(pdf_label, 0, 5, 1, 1)
     grid.attach(pdf_entry, 1, 5, 1, 1)
     grid.attach(pdf_button, 2, 5, 1, 1)
-    grid.attach(save_button, 0, 6, 3, 1)
+    ###
+    grid.attach(company_name_label, 0, 6, 1, 1)
+    grid.attach(company_name_entry, 1, 6, 2, 1)
+    grid.attach(company_street_label, 0, 7, 1, 1)
+    grid.attach(company_street_entry, 1, 7, 2, 1)
+    grid.attach(company_city_label, 0, 8, 1, 1)
+    grid.attach(company_city_entry, 1, 8, 2, 1)
+    grid.attach(company_iban_label, 0, 9, 1, 1)
+    grid.attach(company_iban_entry, 1, 9, 2, 1)
+    grid.attach(company_bic_label, 0, 10, 1, 1)
+    grid.attach(company_bic_entry, 1, 10, 2, 1)
+    ###
+    grid.attach(save_button, 0, 11, 3, 1)
 
     # Verhindere, dass das Konfigurationsfenster geschlossen werden kann, wenn es die initiale Einrichtung ist
     if initial_setup
@@ -307,21 +365,27 @@ class InvoiceManager
     config = load_config
     db_config = config['db']
 
-    # Konfiguriere deine Datenbankverbindungsdetails
-    client = Mysql2::Client.new(
-      host: db_config['host'],
-      username: db_config['username'],
-      password: db_config['password'],
-      database: db_config['database']
-    )
-
-    # Teste die Verbindung
     begin
+      # Konfiguriere deine Datenbankverbindungsdetails
+      client = Mysql2::Client.new(
+        host: db_config['host'],
+        username: db_config['username'],
+        password: db_config['password'],
+        database: db_config['database']
+      )
+
+      # Teste die Verbindung
       results = client.query("SELECT VERSION()")
       version = results.first['VERSION()']
-      @statusbar.push(@statusbar.get_context_id('info'), "Erfolgreich verbunden - DB-Version: #{version}")
+      if defined?(@statusbar)
+        @statusbar.push(@statusbar.get_context_id('info'), "Erfolgreich verbunden - DB-Version: #{version}")
+      end
     rescue Mysql2::Error => e
       puts "Verbindung zu DB fehlgeschlagen! - #{e.message}"
+      if defined?(@statusbar)
+        @statusbar.push(@statusbar.get_context_id('error'), "ERROR - Datenbank nicht erreichbar.")
+      end
+      return false
     ensure
       client.close if client
     end
@@ -598,7 +662,7 @@ end
       when "t_products"
         myQuery = "DELETE FROM #{table_name} WHERE product_id = ?"
       when "t_invoices"
-        myQuery = "DELETE FROM #{table_name} WHERE invoice_id = ?"
+        myQuery = "DELETE FROM #{table_name} WHERE invoice_number = ?"
       else
         raise "Unknown table: #{table_name}"
       end
@@ -606,7 +670,7 @@ end
       stmt = client.prepare(myQuery)
       stmt.execute(id)
 
-      @statusbar.push(@statusbar.get_context_id('info'), "Eintrag gelöscht")
+      @statusbar.push(@statusbar.get_context_id('info'), "#{id} gelöscht")
 
     rescue Mysql2::Error => e
       puts "Fehler beim Löschen aus der Datenbank: #{e.message}"
@@ -916,6 +980,15 @@ end
     )
 
     content_area = dialog.content_area
+
+    ### TODO
+    # PDF erzeugen Button hinzufügen
+    #pdf_button = Gtk::Button.new(label: "PDF erzeugen")
+    #pdf_button.signal_connect("clicked") do
+    #  generate_pdf(invoice_number)
+    #end
+    #content_area.add(pdf_button)
+    
     paid_checkbox = Gtk::CheckButton.new("Bezahlt")
     paid_checkbox.active = (invoice['paid'] == 1)
     content_area.add(paid_checkbox)
@@ -928,7 +1001,6 @@ end
         #paid: new_paid_status
         paid: paid_checkbox.active? ? 1 : 0
         }
-      puts updated_data
 
       write2db("t_invoices", updated_data, invoice_number)
 
@@ -978,7 +1050,6 @@ end
     else
       invoice_number = result[0].to_i + 1
     end
-    puts invoice_number
     return invoice_number
   end
 
@@ -1041,7 +1112,7 @@ end
       row_box.pack_start(checkbox, expand: false, fill: false, padding: 0)
       row_box.pack_start(quantity_entry, expand: false, fill: false, padding: 0)
       products_list.add(row_box)
-      products << { id: row[0], name: row[1], price: row[2], lagerstand: row[3], mwst_satz: row[4], checkbox: checkbox, quantity: quantity_entry }
+      products << { id: row[0], name: row[1], price: row[2], stored: row[3], tax: row[4], checkbox: checkbox, quantity: quantity_entry }
     end
 
     scrolled_window.add(products_list)
@@ -1102,20 +1173,9 @@ end
         # Get the first field from the result and jsut save the value to a variable. This is the ID of the new invoice.
         this_invoice_id = get_from_DB("SELECT invoice_id FROM t_invoices WHERE invoice_number = '#{this_invoice_number}';", false).first['invoice_id']
 
-
-
           # Speichern der Rechnungspositionen
         billed_data = { }
         selected_products.each do |product|
-          quantity = product[:quantity].text.to_i
-          price_with_vat = product[:price]
-          mwst_satz = product[:mwst_satz] || 20.0
-          price_without_vat = (price_with_vat / (1 + mwst_satz / 100.0)).round(2)
-
-          gesamtpreis_netto = (price_without_vat * quantity).round(2)
-          mwst_betrag = (gesamtpreis_netto * (mwst_satz / 100.0)).round(2)
-          gesamtpreis_brutto = (gesamtpreis_netto + mwst_betrag).round(2)
-
           billed_data = {
             invoice_id: this_invoice_id,
             product_count: product[:quantity].text.to_i,
@@ -1129,12 +1189,11 @@ end
 
         if adjust_stock_checkbox.active?
           adjust_stock(selected_products)
-          puts selected_products.inspect
         end
 
         if save_pdf_checkbox.active?
-          #generate_pdf(this_invoice_id, customer_id, selected_products, date)
-          puts "PDF ERSTELLEN"
+          generate_pdf(this_invoice_id, customer_id, selected_products, date)
+          @statusbar.push(@statusbar.get_context_id('info'), "PDF wurde erstellt.")
         end
       end
     end
@@ -1147,7 +1206,6 @@ end
       if product[:lagerstand]
         new_stock = product[:lagerstand] - product[:quantity].text.to_i
         new_stock = 0 if new_stock < 0
-        values = {}
         write2db("t_products", { stored: new_stock }, product[:id])
       end
     end
@@ -1251,72 +1309,170 @@ end
       client.close if client
     end
   end
-
+    
   def generate_pdf(invoice_id, customer_id, selected_products, date)
     config = load_config
     pdf_path = config['pdf_path']
+    logo_path = config['logo']
+    company = config['company']
 
-    customer_data = get_from_DB("SELECT name, street, housenumber, zip, city, email, phone FROM t_customers WHERE customer_id = ?", false, customer_id).first
+    customer_data = get_from_DB("SELECT name, street, housenumber, zip, city, email, phone FROM t_customers WHERE customer_id = #{customer_id}", false).first
 
-    billed_products = get_from_DB("SELECT p.name, bp.product_count, p.brutto, (p.brutto * bp.product_count) as total 
+    billed_products = get_from_DB("SELECT p.name, bp.product_count, p.brutto, (p.brutto * bp.product_count) as total, p.tax
                                  FROM t_billed_products bp 
                                  JOIN t_products p ON bp.product_id = p.product_id 
-                                 WHERE bp.invoice_id = ?", false, invoice_id)
+                                 WHERE bp.invoice_id = #{invoice_id}", false)
 
-    invoice_number = get_from_DB("SELECT invoice_number FROM t_invoices WHERE invoice_id = ?", false, invoice_id).first['invoice_number']
+                              
+    invoice_number = get_from_DB("SELECT invoice_number FROM t_invoices WHERE invoice_id = #{invoice_id}", false).first['invoice_number']
 
     pdf_file_path = File.join(pdf_path, "Rechnung_#{invoice_number}.pdf")
 
+    Prawn::Fonts::AFM.hide_m17n_warning = true
     Prawn::Document.generate(pdf_file_path) do |pdf|
       pdf.font "Helvetica"
 
+      # Wasserzeichen hinzufügen
+      if File.exist?(logo_path)
+        pdf.canvas do
+          pdf.transparent(0.5) do
+            pdf.image logo_path, at: [pdf.bounds.width / 2 - 100, pdf.bounds.height / 2 + 100], width: 200, height: 200
+          end
+        end
+      end
+
+### TODO
+      # Fußzeile auf jeder Seite
+      #pdf.repeat(:all) do
+       # pdf.bounding_box([0, pdf.bounds.bottom + 30], width: pdf.bounds.width, height: 30) do
+        #  pdf.stroke_horizontal_rule
+         # pdf.move_down 5
+          #pdf.text "Weinbau Birsak | Bäckergasse 5, 2273 Hohenau | Tel: 0123456789 | www.wein-birsak.at", size: 8, align: :center
+        #end
+      #end
+
       # Company information
-      pdf.text "Weinbau Birsak", size: 20, style: :bold
-      pdf.text "Bäckergasse 5"
-      pdf.text "2273 Hohenau"
+      pdf.text "#{company['name']}", style: :bold
+      pdf.text "#{company['street']}"
+      pdf.text "#{company['city']}"
       pdf.move_down 20
 
       # Customer address
       pdf.text "Rechnung an:", style: :bold
-      pdf.text customer_data['name']
-      pdf.text "#{customer_data['street']} #{customer_data['housenumber']}"
-      pdf.text "#{customer_data['zip']} #{customer_data['city']}"
-      pdf.move_down 10
-      pdf.text "E-Mail: #{customer_data['email']}" if customer_data['email']
-      pdf.text "Telefon: #{customer_data['phone']}" if customer_data['phone']
+      pdf.text customer_data['name'], size: 12
+      pdf.text "#{customer_data['street']} #{customer_data['housenumber']}", size: 12
+      pdf.text "#{customer_data['zip']} #{customer_data['city']}", size: 12
+      pdf.move_down 15
+      
+      if customer_data['email'] && !customer_data['email'].empty?
+        pdf.text "E-Mail: #{customer_data['email']}"
+      end
 
-      pdf.move_down 20
+      pdf.move_down 25
   
       pdf.text "Rechnung Nr. #{invoice_number}", size: 16, style: :bold
-      pdf.text "Datum: #{date}"
+      year, month, day = date.split('-')
+
+      # Baue den neuen String im Format Tag.Monat.Jahr
+      pdf.move_down 10
+      formatted_date = [day, month, year].join('.')
+      pdf.text "Datum: #{formatted_date}"
       pdf.move_down 20
 
+      # Rechnungspositionen
+        items = [["Produkt", "Menge", "Einzelpreis (Brutto)", "Einzelpreis (Netto)", "MwSt (%)", "Gesamt (Brutto)"]]
+        total_netto = 0.0
+        total_mwst = 0.0
+        total_brutto = 0.0
+
       # Invoice items
-      items = [["Produkt", "Menge", "Einzelpreis", "Gesamt"]]
       billed_products.each do |product|
+        tmp = product['tax'] + 100
+        mwst = product['brutto'] / tmp * product['tax']
+        netto = product['brutto'] / tmp * 100
+        total_netto += netto * product['product_count']
+        total_mwst += mwst * product['product_count']
+        total_brutto += product['total']
+
         items << [
           product['name'],
           product['product_count'],
           sprintf("%.2f €", product['brutto']),
+          sprintf("%.2f €", netto),
+          sprintf("%.2f %%", product['tax']), # Hier wird das Prozentzeichen verwendet
           sprintf("%.2f €", product['total'])
-        ]
+      ]
+    end
+
+
+  # Festgelegte Spaltenbreiten
+  column_widths = [185, 55, 75, 75, 75, 75]
+
+      pdf.table(items, header: true, width: pdf.bounds.width, cell_style: { inline_format: true }, column_widths: column_widths) do
+        row(0).font_style = :bold
+        columns(2..5).align = :right
       end
 
-      pdf.table(items, header: true, width: pdf.bounds.width) do
-        row(0).font_style = :bold
-        columns(2..3).align = :right
-      end
 
       pdf.move_down 10
-      pdf.text "Nettobetrag: #{sprintf("%.2f €", total_sum)}", align: :right
+      pdf.text "Nettobetrag: #{sprintf("%.2f €", total_netto)}", align: :right
       pdf.text "MwSt: #{sprintf("%.2f €", total_mwst)}", align: :right
-      pdf.text "Gesamtbetrag: #{sprintf("%.2f €", total_sum + total_mwst)}", size: 16, style: :bold, align: :right
+      pdf.text "Gesamtbetrag: #{sprintf("%.2f €", total_brutto)}", size: 16, style: :bold, align: :right
 
       pdf.move_down 40
-      pdf.text "Vielen Dank für Ihren Einkauf!", align: :center
+      #pdf.text "Betrag dankend erhalten!", align: :center
+
+      qr_code_base64 = generate_sepa_qr_code(
+        "#{company['name']}",    # Name des Empfängers
+        "#{company['iban']}", # IBAN
+        "#{company['bic']}",      # BIC
+        "#{total_brutto.to_f}",           # Betrag
+        "#{invoice_number}" # Verwendungszweck
+        )
+
+
+      # QR-Code und Text in einer Bounding Box einfügen
+      pdf.bounding_box([pdf.bounds.right - 120, pdf.bounds.bottom + 150], width: 120) do
+        #pdf.text "Scannen zum Bezahlen:", align: :right
+        pdf.text "Betrag dankend erhalten!", align: :center
+        qr_code_image = StringIO.new(Base64.decode64(qr_code_base64))
+        pdf.image qr_code_image, width: 100, position: :center
+      end
+     
+
+      pdf.repeat(:all) do
+        pdf.bounding_box([0, pdf.bounds.bottom + 20], width: pdf.bounds.width, height: 30) do
+          pdf.stroke_horizontal_rule
+          pdf.move_down 5
+          pdf.text "|#{company['name']} | #{company['street']}, #{company['city']} |", size: 8, align: :center
+          pdf.text "IBAN: #{company['iban']}| BIC: #{company['bic']}", size: 8, align: :center
+        end
+      end
+
     end
-    puts "PDF-Rechnung wurde erstellt: Rechnung_#{invoice_number}.pdf"
   end
+
+  def generate_sepa_qr_code(name, iban, bic, amount, reference)
+    # SEPA QR-Code Format erstellen
+    sepa_data = <<-SEPA.strip
+      BCD
+      002
+      1
+      SCT
+      #{bic}
+      #{name}
+      #{iban}
+      #{amount}
+      EUR
+      #{reference}
+    SEPA
+
+    qr = RQRCode::QRCode.new(sepa_data, level: :l, size: 6)
+    png = qr.as_png
+    Base64.encode64(png.to_s) # Bild in Base64 kodieren, um es in ein PDF einzufügen
+  end
+
+
 
   def run
     Gtk.main
